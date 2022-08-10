@@ -15,8 +15,8 @@ from polygonetl.streaming.enrich import enrich_transactions, enrich_logs, enrich
 from polygonetl.streaming.eth_item_id_calculator import EthItemIdCalculator
 from polygonetl.streaming.eth_item_timestamp_calculator import EthItemTimestampCalculator
 from polygonetl.thread_local_proxy import ThreadLocalProxy
-from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from polygonetl.web3_utils import build_web3
+
 
 class EthStreamerAdapter:
     def __init__(
@@ -33,8 +33,7 @@ class EthStreamerAdapter:
         self.entity_types = entity_types
         self.item_id_calculator = EthItemIdCalculator()
         self.item_timestamp_calculator = EthItemTimestampCalculator()
-        self.web3 = Web3(self.batch_web3_provider)
-        self.web3.middleware_stack.inject(geth_poa_middleware, layer=0)
+        self.web3 = build_web3(self.batch_web3_provider)
 
     def open(self):
         self.item_exporter.open()
