@@ -42,7 +42,7 @@ setup(
         "eth-utils==1.8.4",
         "ethereum-dasm==0.1.4",
         "requests",
-        "web3==4.7.2",
+        "web3>=5.29,<6",
     ],
     extras_require={
         "streaming": [
