@@ -46,7 +46,7 @@ class ExportReceiptsJob(BaseJob):
         self.batch_web3_provider = batch_web3_provider
         self.transaction_hashes_iterable = transaction_hashes_iterable
 
-        self.batch_work_executor = BatchWorkExecutor(batch_size, max_workers)
+        self.batch_work_executor = BatchWorkExecutor(batch_size, max_workers, name='ExportReceipts')
         self.item_exporter = item_exporter
 
         self.export_receipts = export_receipts

@@ -21,10 +21,13 @@
 # SOFTWARE.
 
 import collections
+import logging
 
 from sqlalchemy import create_engine
 
 from blockchainetl.jobs.exporters.converters.composite_item_converter import CompositeItemConverter
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait
 
 
 class PostgresItemExporter:
@@ -36,6 +39,8 @@ class PostgresItemExporter:
         self.print_sql = print_sql
 
         self.engine = self.create_engine()
+        self.logger = logging.getLogger('PostgresItemExporter')
+        self.executor = ThreadPoolExecutor(max_workers=20)
 
     def open(self):
         pass
@@ -43,12 +48,26 @@ class PostgresItemExporter:
     def export_items(self, items):
         items_grouped_by_type = group_by_item_type(items)
 
+        futures = []
+
         for item_type, insert_stmt in self.item_type_to_insert_stmt_mapping.items():
             item_group = items_grouped_by_type.get(item_type)
             if item_group:
-                connection = self.engine.connect()
                 converted_items = list(self.convert_items(item_group))
-                connection.execute(insert_stmt, converted_items)
+                self.logger.info('{}: start exporting {} items'.format(item_type, len(converted_items)))
+
+                def execute_handler(insert_items):
+                    connection = self.engine.connect()
+                    connection.execute(insert_stmt, insert_items)
+                    self.logger.info('Chunk size {} exported'.format(len(insert_items)))
+
+                chunk_size = 200
+                list_chunked = [converted_items[i:i + chunk_size] for i in range(0, len(converted_items), chunk_size)]
+
+                for i in range(0, len(list_chunked)):
+                    futures.append(self.executor.submit(execute_handler, list_chunked[i]))
+
+        wait(futures)
 
     def convert_items(self, items):
         for item in items:
@@ -59,7 +78,7 @@ class PostgresItemExporter:
         return engine
 
     def close(self):
-        pass
+        self.executor.shutdown(True)
 
 
 def group_by_item_type(items):
