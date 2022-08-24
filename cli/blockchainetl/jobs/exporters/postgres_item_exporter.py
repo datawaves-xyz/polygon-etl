@@ -21,10 +21,14 @@
 # SOFTWARE.
 
 import collections
+import logging
+import time
 
 from sqlalchemy import create_engine
 
 from blockchainetl.jobs.exporters.converters.composite_item_converter import CompositeItemConverter
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait
 
 
 class PostgresItemExporter:
@@ -36,6 +40,8 @@ class PostgresItemExporter:
         self.print_sql = print_sql
 
         self.engine = self.create_engine()
+        self.logger = logging.getLogger('PostgresItemExporter')
+        self.executor = ThreadPoolExecutor(max_workers=20)
 
     def open(self):
         pass
@@ -43,12 +49,31 @@ class PostgresItemExporter:
     def export_items(self, items):
         items_grouped_by_type = group_by_item_type(items)
 
+        chunk_size = 200
+
         for item_type, insert_stmt in self.item_type_to_insert_stmt_mapping.items():
             item_group = items_grouped_by_type.get(item_type)
             if item_group:
-                connection = self.engine.connect()
                 converted_items = list(self.convert_items(item_group))
-                connection.execute(insert_stmt, converted_items)
+
+                self.logger.info('{}: start exporting {} items'.format(item_type, len(converted_items)))
+
+                start = time.time()
+
+                def execute_handler(chunked_items):
+                    connection = self.engine.connect()
+                    connection.execute(insert_stmt, chunked_items)
+
+                futures = []
+                for i in range(0, len(converted_items), chunk_size):
+                    futures.append(
+                        self.executor.submit(execute_handler, converted_items[i:i + chunk_size]))
+
+                wait(futures)
+
+                elapsed_time = time.time() - start
+                self.logger.info('{}: {} items exported, at {}'.format(item_type, len(converted_items),
+                                                                       len(converted_items) / elapsed_time))
 
     def convert_items(self, items):
         for item in items:
@@ -59,7 +84,7 @@ class PostgresItemExporter:
         return engine
 
     def close(self):
-        pass
+        self.executor.shutdown(True)
 
 
 def group_by_item_type(items):
