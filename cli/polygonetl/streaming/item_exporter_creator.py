@@ -24,14 +24,14 @@ from blockchainetl_common.jobs.exporters.console_item_exporter import ConsoleIte
 from blockchainetl_common.jobs.exporters.multi_item_exporter import MultiItemExporter
 
 
-def create_item_exporters(outputs):
+def create_item_exporters(outputs, chunk_size, max_workers):
     split_outputs = [output.strip() for output in outputs.split(',')] if outputs else ['console']
 
-    item_exporters = [create_item_exporter(output) for output in split_outputs]
+    item_exporters = [create_item_exporter(output, chunk_size, max_workers) for output in split_outputs]
     return MultiItemExporter(item_exporters)
 
 
-def create_item_exporter(output):
+def create_item_exporter(output, chunk_size, max_workers):
     item_exporter_type = determine_item_exporter_type(output)
     if item_exporter_type == ItemExporterType.PUBSUB:
         from blockchainetl_common.jobs.exporters.google_pubsub_item_exporter import GooglePubSubItemExporter
@@ -68,7 +68,9 @@ def create_item_exporter(output):
             },
             converters=[UnixTimestampItemConverter(), IntToDecimalItemConverter(),
                         ListFieldItemConverter('topics', 'topic', fill=4)],
-            print_sql=False
+            print_sql=False,
+            chunk_size=chunk_size,
+            max_workers=max_workers
         )
     elif item_exporter_type == ItemExporterType.GCS:
         from blockchainetl_common.jobs.exporters.gcs_item_exporter import GcsItemExporter
