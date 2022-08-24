@@ -33,7 +33,8 @@ from concurrent.futures import wait
 
 class PostgresItemExporter:
 
-    def __init__(self, connection_url, item_type_to_insert_stmt_mapping, converters=(), print_sql=True):
+    def __init__(self, connection_url, item_type_to_insert_stmt_mapping, converters=(), print_sql=True,
+                 chunk_size=200, max_workers=20):
         self.connection_url = connection_url
         self.item_type_to_insert_stmt_mapping = item_type_to_insert_stmt_mapping
         self.converter = CompositeItemConverter(converters)
@@ -41,15 +42,14 @@ class PostgresItemExporter:
 
         self.engine = self.create_engine()
         self.logger = logging.getLogger('PostgresItemExporter')
-        self.executor = ThreadPoolExecutor(max_workers=20)
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.chunk_size = chunk_size
 
     def open(self):
         pass
 
     def export_items(self, items):
         items_grouped_by_type = group_by_item_type(items)
-
-        chunk_size = 200
 
         for item_type, insert_stmt in self.item_type_to_insert_stmt_mapping.items():
             item_group = items_grouped_by_type.get(item_type)
@@ -65,15 +65,15 @@ class PostgresItemExporter:
                     connection.execute(insert_stmt, chunked_items)
 
                 futures = []
-                for i in range(0, len(converted_items), chunk_size):
+                for i in range(0, len(converted_items), self.chunk_size):
                     futures.append(
-                        self.executor.submit(execute_handler, converted_items[i:i + chunk_size]))
+                        self.executor.submit(execute_handler, converted_items[i:i + self.chunk_size]))
 
                 wait(futures)
 
                 elapsed_time = time.time() - start
-                self.logger.info('{}: {} items exported, at {}'.format(item_type, len(converted_items),
-                                                                       len(converted_items) / elapsed_time))
+                self.logger.info('{}: {} items exported, at {}/s'.format(item_type, len(converted_items),
+                                                                         int(len(converted_items) / elapsed_time)))
 
     def convert_items(self, items):
         for item in items:
