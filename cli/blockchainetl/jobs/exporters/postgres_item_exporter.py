@@ -22,6 +22,7 @@
 
 import collections
 import logging
+import time
 
 from sqlalchemy import create_engine
 
@@ -48,26 +49,31 @@ class PostgresItemExporter:
     def export_items(self, items):
         items_grouped_by_type = group_by_item_type(items)
 
-        futures = []
+        chunk_size = 200
 
         for item_type, insert_stmt in self.item_type_to_insert_stmt_mapping.items():
             item_group = items_grouped_by_type.get(item_type)
             if item_group:
                 converted_items = list(self.convert_items(item_group))
+
                 self.logger.info('{}: start exporting {} items'.format(item_type, len(converted_items)))
 
-                def execute_handler(insert_items):
+                start = time.time()
+
+                def execute_handler(chunked_items):
                     connection = self.engine.connect()
-                    connection.execute(insert_stmt, insert_items)
-                    self.logger.info('Chunk size {} exported'.format(len(insert_items)))
+                    connection.execute(insert_stmt, chunked_items)
 
-                chunk_size = 200
-                list_chunked = [converted_items[i:i + chunk_size] for i in range(0, len(converted_items), chunk_size)]
+                futures = []
+                for i in range(0, len(converted_items), chunk_size):
+                    futures.append(
+                        self.executor.submit(execute_handler, converted_items[i:i + chunk_size]))
 
-                for i in range(0, len(list_chunked)):
-                    futures.append(self.executor.submit(execute_handler, list_chunked[i]))
+                wait(futures)
 
-        wait(futures)
+                elapsed_time = time.time() - start
+                self.logger.info('{}: {} items exported, at {}'.format(item_type, len(converted_items),
+                                                                       len(converted_items) / elapsed_time))
 
     def convert_items(self, items):
         for item in items:
